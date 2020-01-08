@@ -20,6 +20,10 @@ class PathIntegratorTrial(pytry.PlotTrial):
         self.param('sample every dt', sample_every=0.1)
         self.param('world dt', world_dt=0.1)
         self.param('brain (nengo|sigmoid|ideal)', brain='nengo')
+        self.param('rotation scaling', rotation_scaling=8.0)
+        self.param('path integrator output scaling low value', path_output_rescale_low=0.0)
+        self.param('path integrator output scaling high value', path_output_rescale_high=1.0)
+        
         
     def evaluate(self, p, plt):
         world = moth_world.World(x=0, y=0, heading=0,
@@ -78,7 +82,7 @@ class PathIntegratorTrial(pytry.PlotTrial):
                     self.tb1 = tb1
                     self.memory = memory
 
-                    return motor
+                    return np.interp(motor, [p.path_output_rescale_low, p.path_output_rescale_high], [0,1])
                 return nengo.Node(update, size_in=3, size_out=2)
 
             def make_memory(self):
@@ -117,24 +121,23 @@ class PathIntegratorTrial(pytry.PlotTrial):
                 brain = moth_brain_sigmoid.MothBrainSigmoid(weight_noise=0.01, sigmoid_noise=0.02, inhib=0.0)
 
             sensor_scaling = 1.0
-            rotation_scaling = 8.0
             if p.brain == 'nengo':
                 nengo.Connection(path_integrator[0], brain.inputL,
                                  transform=sensor_scaling, synapse=None)
                 nengo.Connection(path_integrator[1], brain.inputR,
                                  transform=sensor_scaling, synapse=None)
-                nengo.Connection(brain.turn, mode[2], transform=rotation_scaling, synapse=None)
+                nengo.Connection(brain.turn, mode[2], transform=p.rotation_scaling, synapse=None)
             elif p.brain == 'sigmoid':
                 nengo.Connection(path_integrator[0], brain.inputR,
                                  transform=sensor_scaling, synapse=None)
                 nengo.Connection(path_integrator[1], brain.inputL,
                                  transform=sensor_scaling, synapse=None)
-                nengo.Connection(brain.turn, mode[2], transform=rotation_scaling, synapse=None)
+                nengo.Connection(brain.turn, mode[2], transform=p.rotation_scaling, synapse=None)
             elif p.brain == 'ideal':
                 nengo.Connection(path_integrator[0], mode[2],
-                                 transform=sensor_scaling*rotation_scaling, synapse=None)
+                                 transform=sensor_scaling*p.rotation_scaling, synapse=None)
                 nengo.Connection(path_integrator[1], mode[2],
-                                 transform=-sensor_scaling*rotation_scaling, synapse=None)
+                                 transform=-sensor_scaling*p.rotation_scaling, synapse=None)
             else:
                 raise Exception('unknown brain type: %s' % brain)
 
@@ -151,6 +154,12 @@ class PathIntegratorTrial(pytry.PlotTrial):
 
         sim = nengo.Simulator(model)
         sim.run(p.t_sim)
+
+        if p.plt:
+            path = sim.data[p_pos]
+            index = int(p.t_switch / p.sample_every)
+            plt.plot(path[:index,0], path[:index,1], c='g')
+            plt.plot(path[index:,0], path[index:,1], c='k')
         
         return dict(
             path = sim.data[p_pos],
